@@ -1,0 +1,51 @@
+name: Daily trade
+
+on:
+  schedule:
+    # 12:35 UTC on weekdays = 8:35 AM New York in summer, 7:35 AM in winter, before the 9:30 open.
+    # The bot asks Alpaca whether the market opens today and does nothing on holidays.
+    - cron: "35 12 * * 1-5"
+  workflow_dispatch:          # "Run workflow" button for a manual run
+
+concurrency:
+  group: daily-trade          # never two runs at once
+  cancel-in-progress: false
+
+jobs:
+  trade:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      TRADEBOT_BROKER: alpaca
+      ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+      ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
+      ALPACA_LIVE: ${{ vars.ALPACA_LIVE }}     # leave unset for paper trading
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+
+      - name: Place today's trade
+        run: python -m tradebot run
+
+      - name: Account status
+        if: always()
+        run: python -m tradebot status
+
+      - name: Build analytics dashboard
+        if: always()
+        run: python -m tradebot dashboard --source alpaca --out dashboard/index.html
+
+      - name: Save dashboard
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trading-dashboard
+          path: |
+            dashboard/index.html
+            data/journal.csv
+          if-no-files-found: ignore
+          retention-days: 90

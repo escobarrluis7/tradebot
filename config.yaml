@@ -1,0 +1,46 @@
+# ---------------------------------------------------------------------------
+# Daily one-trade bot configuration. Edit this file to tune the bot.
+# ---------------------------------------------------------------------------
+
+# Universe the bot chooses its ONE trade from each day.
+watchlist: [SPY, QQQ, IWM, DIA, XLK, XLF, XLE, XLV, XLY, XLI, XLP, XLU, XLC,
+            GLD, TLT, AAPL, MSFT, NVDA, AMZN, GOOGL, META, TSLA, AVGO, JPM]
+benchmark: SPY               # used for the market-regime filter and comparisons
+
+# Execution
+broker: paper                # paper (built-in simulator) | alpaca
+allow_live: false            # must be true AND env ALPACA_LIVE=1 for real-money trading
+starting_cash: 10000         # paper account only
+hold_days: 1                 # sessions to hold each trade
+exit_at: open                # open = sell at the NEXT open (holds overnight, not a day trade)
+                             # close = sell at the same day's close (day trade; backtests poorly)
+allow_short: false           # long-only by default
+
+# Risk management
+risk_per_trade: 0.02         # risk 2% of equity between entry and stop
+max_position_pct: 1.0        # never put more than 100% of equity in one trade
+stop_atr_mult: 2.0           # stop = entry - 2.0 x ATR(14)
+target_atr_mult: 4.0         # take profit = entry + 4.0 x ATR(14)
+min_score: 0.15              # skip the day (stay in cash) if best score is below this
+regime_filter: true          # if benchmark < 200-day SMA, require 2x the min_score
+
+# Costs used by the backtester and paper broker
+commission: 0.0              # $ per trade side
+slippage_bps: 2              # 0.02% per side
+
+# Strategy ensemble. Weights are the starting/base weights; with
+# adaptive_weights the bot shifts weight toward strategies whose signals
+# have been predicting next-day returns best over the lookback window.
+strategies:
+# Defaults chosen on 2013-2019 data only, then checked on 2020-2026 (see README).
+  trend: 1.0                 # SMA 50/200 trend following
+  tsmom: 1.0                 # 12-1 month time-series momentum (vol-scaled)
+  xsmom: 1.0                 # 6-month cross-sectional (relative strength) momentum
+  mean_reversion: 0.5        # RSI(2) pullback inside an uptrend (Connors-style)
+  breakout: 0.0              # 20-day Donchian breakout with volume confirmation
+  macd: 0.0                  # MACD histogram momentum
+adaptive_weights: false
+adaptive_lookback: 120       # trading days used to score strategies
+adaptive_blend: 0.5          # 0 = fixed weights only, 1 = fully performance-driven
+
+history_start: "2012-01-01"  # data download start
