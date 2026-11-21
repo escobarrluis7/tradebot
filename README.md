@@ -58,6 +58,49 @@ What the testing found:
 * Backtests are optimistic. They assume no taxes, and real fills will differ. A watchlist of
   today's winners (NVDA, META, …) also adds survivorship bias. Past results don't guarantee anything.
 
+## Day trading (the bot watches the market all day)
+```bash
+python -m tradebot research            # test every intraday strategy, pick the champion (weekly)
+python -m tradebot daytrade --dry-run  # watch and log decisions, no orders
+python -m tradebot daytrade            # trade: 9:30 AM until flat at 3:15 PM ET
+python -m tradebot log --account tpt-50k --pnl 125.50   # enter a day's P&L by hand for any account
+```
+**How it chooses a strategy.** Each week, `research` tests a library of published intraday strategies
+on years of 5-minute bars from Alpaca:
+* 5-minute opening-range breakout on QQQ and SPY
+* 5-minute opening-range breakout on the "stock in play" (the stock trading the heaviest volume that morning)
+* noise-area intraday momentum on SPY and QQQ
+* 30-minute opening-range breakout
+* first-hour momentum
+
+It ranks them by efficiency (Sharpe ratio, then profit). A strategy may trade **real money** only if it
+passes every check:
+* 150+ trades
+* statistically significant (t-stat ≥ 2)
+* profitable in both halves of the test
+* profit factor ≥ 1.1
+
+On the paper account the bot trades the current leader regardless, so you can watch it work. On a live
+account, if nothing qualifies, it only watches and logs. Every day after the close, all strategies are
+also scored on that day's bars (`data/intraday/shadow.csv`), so the tournament keeps learning.
+
+**What happens each day** (`.github/workflows/daytrade.yml`):
+1. Starts around 9:20 AM ET and loads the last 30 days of bars for context.
+2. Checks every new 5-minute bar from 9:30.
+3. Takes **one** trade when the champion's setup appears, with a stop-loss (and target, if the strategy
+   uses one) placed at the broker immediately.
+4. Exits on the strategy's own signal, the stop or target, or at 3:15 PM ET at the latest.
+5. Rebuilds the dashboard. Alpaca's daily P&L goes straight into the daily / weekly / monthly / yearly /
+   all-time views, so there's nothing to type.
+
+**What I found when testing** (see the commit history for the numbers):
+* Most popular intraday setups lose money after costs over ~3 years of hourly data.
+* The 5-minute opening-range breakout and noise-area momentum were profitable over the last 60 days.
+  That sample is far too short to trust, and that's what the weekly multi-year research and the
+  real-money checks are for.
+* Note: GitHub can start scheduled jobs late. If it starts after 9:35 AM, that day's 5-minute ORB entry
+  is missed; the other strategies still work. A small always-on server avoids this.
+
 ## Your accounts (`accounts.yaml`)
 Every account you trade gets its own analytics, and its own trading mode if you want one:
 

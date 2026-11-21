@@ -187,6 +187,34 @@ def cmd_import(cfg, args):
         print(f"{f}: {added} new trades added to {acc['id']} ({total} total)")
 
 
+def cmd_daytrade(cfg, args):
+    from .broker import AlpacaBroker
+    from .intraday_live import DayTrader
+    cfg["broker"] = "alpaca"
+    b = AlpacaBroker(cfg)
+    if not args.any_time and not _market_check(b):
+        return
+    DayTrader(cfg, b, dry_run=args.dry_run).run()
+    a = b.account()
+    print(f"Equity ${float(a['equity']):,.2f}  (today {float(a['equity']) - float(a['last_equity']):+,.2f})")
+
+
+def cmd_research(cfg, args):
+    from .research import print_board, run_research
+    print_board(run_research(cfg))
+
+
+def cmd_log(cfg, args):
+    from datetime import date
+    from .accounts import get_account
+    from .importers import log_day
+    acc = get_account(args.account)
+    day = args.date or date.today().isoformat()
+    log_day(acc, args.pnl, day, args.note or "")
+    print(f"Logged {'+' if args.pnl >= 0 else ''}{args.pnl:,.2f} for {day} on {acc['name']}. "
+          f"Run 'python -m tradebot dashboard' to see it in the daily/weekly/monthly/yearly views.")
+
+
 def cmd_dashboard(cfg, args):
     from .dashboard import serve, write
     from .accounts import ACCOUNTS_FILE
@@ -221,8 +249,17 @@ def main():
     im.add_argument("--account", required=True)
     im.add_argument("--format", choices=["tradovate", "ninjatrader", "generic"])
     im.add_argument("files", nargs="+")
+    dtp = sub.add_parser("daytrade", help="day trading: watch the market from 9:30 ET and take one trade (Alpaca)")
+    dtp.add_argument("--dry-run", action="store_true", help="watch and log decisions, place no orders")
+    dtp.add_argument("--any-time", action="store_true", help="skip the market-open-today check")
+    lg = sub.add_parser("log", help="enter a day's total profit/loss by hand for an account")
+    lg.add_argument("--account", required=True)
+    lg.add_argument("--pnl", type=float, required=True, help="the day's P&L in dollars, e.g. 125.50 or -80")
+    lg.add_argument("--date", help="YYYY-MM-DD (default today)")
+    lg.add_argument("--note", help="optional label, e.g. 'NQ scalp'")
+    sub.add_parser("research", help="day trading: test every intraday strategy and pick the champion")
     db = sub.add_parser("dashboard", help="build the analytics dashboard (HTML)")
-    db.add_argument("--source", choices=["accounts", "paper", "alpaca", "backtest"],
+    db.add_argument("--source", choices=["accounts", "paper", "alpaca", "backtest", "research"],
                     help="accounts = every account in accounts.yaml (default)")
     db.add_argument("--out", help="output file (default data/dashboard_<source>.html)")
     db.add_argument("--serve", action="store_true", help="run a local web server instead of writing a file")
@@ -231,4 +268,4 @@ def main():
     cfg = load_config(args.config, args.profile)
     {"signal": cmd_signal, "backtest": cmd_backtest, "run": cmd_run,
      "status": cmd_status, "flatten": cmd_flatten, "dashboard": cmd_dashboard,
-     "accounts": cmd_accounts, "import": cmd_import}[args.cmd](cfg, args)
+     "accounts": cmd_accounts, "import": cmd_import, "research": cmd_research, "daytrade": cmd_daytrade, "log": cmd_log}[args.cmd](cfg, args)

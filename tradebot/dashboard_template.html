@@ -99,6 +99,15 @@ select.acct{font:inherit;font-size:14px;padding:6px 10px;border-radius:8px;borde
   <section class="card empty hidden" id="emptyCard"><h2>No closed trades yet</h2>
     <p id="emptyMsg"></p></section>
 
+  <section class="card hidden" id="lbCard">
+    <div class="row" style="margin-bottom:0">
+      <div><h2>Day-trading strategy tournament</h2><div class="sub" id="lbSub"></div></div>
+      <span class="status" id="lbStatus"></span>
+    </div>
+    <div class="tbl"><table id="lbTable"></table></div>
+    <div class="sub" id="lbNote" style="margin-top:10px"></div>
+  </section>
+
   <section class="card hidden" id="rulesCard">
     <div class="row" style="margin-bottom:0">
       <div><h2>Prop firm rules</h2><div class="sub" id="rulesSub"></div></div>
@@ -321,7 +330,7 @@ function renderEquity() {
       borderColor: css('--neg'), backgroundColor: css('--neg') + '33', fill: 'origin', borderWidth: 2, pointRadius: 0, tension: 0}]},
     options: {maintainAspectRatio: false, animation: false, interaction: {mode: 'index', intersect: false},
       plugins: {legend: {display: false}, tooltip: {...tooltip(), callbacks: {label: c => 'Drawdown ' + pct(c.parsed.y, true, 1)}}},
-      scales: axes(v => (v * 100).toFixed(0) + '%')}});
+      scales: (() => { const a = axes(v => (v * 100).toFixed(0) + '%'); a.y.max = 0; a.y.suggestedMin = -0.05; return a; })()}});
 }
 document.getElementById('rangeTabs').addEventListener('click', e => {
   const b = e.target.closest('button'); if (!b) return;
@@ -362,9 +371,24 @@ function renderTrades() {
     : '<tbody><tr><td class="empty">No closed trades yet. They appear here after the bot\'s first trade completes.</td></tr></tbody>';
 }
 
-const SECTIONS = () => document.querySelectorAll('section.card:not(#emptyCard):not(#rulesCard), .grid2');
+const SECTIONS = () => document.querySelectorAll('section.card:not(#emptyCard):not(#rulesCard):not(#lbCard), .grid2');
+function renderLeaderboard() {
+  const L = R.leaderboard, card = document.getElementById('lbCard');
+  card.classList.toggle('hidden', !L);
+  if (!L) return;
+  document.getElementById('lbSub').textContent = `Every strategy tested ${L.first_day} to ${L.last_day} · ${L.data} · updated ${L.generated}`;
+  const st = document.getElementById('lbStatus');
+  st.className = 'status ' + (L.champion_qualified ? 'ok' : 'bad');
+  st.textContent = L.champion_qualified ? '✓ Champion qualifies for real money' : '! No strategy qualifies yet: paper trading only';
+  document.getElementById('lbTable').innerHTML = '<thead><tr><th>Strategy</th><th>Trades</th><th>Total return</th><th>Sharpe</th><th>Confidence (t)</th><th>Win rate</th><th>Max drawdown</th><th>Real money?</th></tr></thead><tbody>' +
+    L.leaderboard.map((r, i) => `<tr><td>${i === 0 ? '★ ' : ''}${r.strategy}</td><td>${r.trades}</td><td class="${cls(r.total_return)}">${pct(r.total_return, true, 1)}</td>
+      <td>${num(r.sharpe)}</td><td>${num(r.t_stat)}</td><td>${r.win_rate != null ? pct(r.win_rate, false, 0) : '–'}</td>
+      <td>${r.max_drawdown != null ? pct(r.max_drawdown, true, 1) : '–'}</td><td title="${r.why}">${r.qualified ? '✓ yes' : '✕ no'}</td></tr>`).join('') + '</tbody>';
+  const top = L.leaderboard[0];
+  document.getElementById('lbNote').textContent = `★ The bot trades ${top.strategy}. ${top.qualified ? '' : 'Why it is paper-only: ' + top.why + '.'} Hover over a row's last column for details.`;
+}
 function renderAll() {
-  theme(); renderHeader(); renderKpis(); renderRules();
+  theme(); renderHeader(); renderKpis(); renderRules(); renderLeaderboard();
   const empty = !R.equity.length;
   document.getElementById('emptyCard').classList.toggle('hidden', !empty);
   SECTIONS().forEach(e => e.classList.toggle('hidden', empty));

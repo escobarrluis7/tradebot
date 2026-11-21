@@ -128,3 +128,20 @@ def import_file(acc: dict, path: str, fmt: str | None = None) -> tuple[int, int]
     p.parent.mkdir(parents=True, exist_ok=True)
     allt.to_csv(p, index=False)
     return len(allt) - len(old), len(allt)
+
+
+def log_day(acc: dict, pnl: float, day: str, note: str = "") -> int:
+    """Record a day's total P&L by hand (for accounts the app can't read). Logging the same
+    date again replaces that day's manual entry, so corrections are easy."""
+    size = float(acc.get("rules", {}).get("account_size") or 0)
+    t = load_trades(acc["id"])
+    if len(t):
+        t = t[~((t.reason == "manual") & (t.exit_date == day))]
+    row = {"entry_time": f"{day} 09:30:00", "exit_time": f"{day} 16:00:00", "entry_date": day, "exit_date": day,
+           "symbol": note or "DAY TOTAL", "side": "long" if pnl >= 0 else "short", "qty": 0, "entry": float("nan"),
+           "exit": float("nan"), "pnl": round(float(pnl), 2), "ret": pnl / size if size else float("nan"), "reason": "manual"}
+    t = pd.concat([t, pd.DataFrame([row])], ignore_index=True).sort_values("exit_time")
+    p = store_path(acc["id"])
+    p.parent.mkdir(parents=True, exist_ok=True)
+    t.to_csv(p, index=False)
+    return len(t)

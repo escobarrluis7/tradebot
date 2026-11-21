@@ -15,7 +15,19 @@ def _html(reports: dict) -> str:
     return TEMPLATE.read_text().replace("__DATA__", data)
 
 
+def render_leaderboard_only() -> str:
+    """Dashboard page for the strategy tournament when no account data is reachable (e.g. no keys yet)."""
+    from .research import load_leaderboard
+    lb = load_leaderboard()
+    rep = {"source": "Day-trading strategy research", "generated": lb["generated"] if lb else "", "benchmark_name": "",
+           "summary": {}, "periods": {"daily": [], "weekly": [], "monthly": [], "yearly": []}, "equity": [], "drawdown": [],
+           "benchmark": [], "by_symbol": [], "by_reason": [], "trades": [], "account": None, "rules": None, "leaderboard": lb}
+    return _html({"research": rep})
+
+
 def render(cfg, source) -> str:
+    if source == "research":
+        return render_leaderboard_only()
     if source == "accounts":
         return render_accounts()
     return _html({source: build_report(cfg, source)})
@@ -32,6 +44,9 @@ def render_accounts(only=None) -> str:
         cfg = load_config(profile=acc["profile"])
         try:
             reports[acc["id"]] = build_report(cfg, "account", acc)
+            if acc.get("strategy") == "daytrade":
+                from .research import load_leaderboard
+                reports[acc["id"]]["leaderboard"] = load_leaderboard()
         except (SystemExit, Exception) as e:          # e.g. Alpaca keys not set on this machine
             print(f"skipping {acc['id']}: {e}")
     if not reports:

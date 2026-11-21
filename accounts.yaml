@@ -18,10 +18,11 @@
 # ---------------------------------------------------------------------------
 accounts:
   - id: alpaca-paper
-    name: Alpaca paper
+    name: Alpaca paper (day trading)
     firm: broker
     platform: Alpaca
     profile: stocks
+    strategy: daytrade        # daytrade = intraday bot (9:30-15:15 ET); swing = the daily overnight bot
     mode: auto
     connector: {type: alpaca}
 

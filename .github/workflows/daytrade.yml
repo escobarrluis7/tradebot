@@ -1,0 +1,81 @@
+name: Day trading
+
+on:
+  schedule:
+    # Start ~9:20 AM New York (two UTC times cover summer/winter; the job checks the NY hour).
+    - cron: "20 13 * * 1-5"
+    - cron: "20 14 * * 1-5"
+    # Weekly strategy research: Saturday morning UTC.
+    - cron: "0 12 * * 6"
+  workflow_dispatch:
+    inputs:
+      job:
+        description: "What to run"
+        type: choice
+        options: [daytrade, research, daytrade-dry-run]
+        default: daytrade
+
+permissions:
+  contents: write          # saves the strategy leaderboard and daily results back to the repo
+
+concurrency:
+  group: daytrade
+  cancel-in-progress: false
+
+env:
+  ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+  ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
+  ALPACA_LIVE: ${{ vars.ALPACA_LIVE }}            # leave unset for paper trading
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 355     # GitHub's limit is 6 hours; the bot is flat by 3:15 PM ET
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+
+      - name: Decide what to run
+        id: which
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then echo "job=${{ inputs.job }}" >> "$GITHUB_OUTPUT"; exit 0; fi
+          if [ "${{ github.event.schedule }}" = "0 12 * * 6" ]; then echo "job=research" >> "$GITHUB_OUTPUT"; exit 0; fi
+          h=$(TZ=America/New_York date +%H)
+          if [ "$h" = "09" ]; then echo "job=daytrade" >> "$GITHUB_OUTPUT"; else echo "job=none" >> "$GITHUB_OUTPUT"; echo "Not 9 AM in New York - skipping"; fi
+
+      - name: Weekly research (rank every strategy)
+        if: steps.which.outputs.job == 'research' || (steps.which.outputs.job == 'daytrade' && hashFiles('data/intraday/leaderboard.json') == '')
+        run: python -m tradebot research
+
+      - name: Day trade (9:30 AM - 3:15 PM ET)
+        if: steps.which.outputs.job == 'daytrade'
+        run: python -m tradebot daytrade
+
+      - name: Day trade - dry run (no orders)
+        if: steps.which.outputs.job == 'daytrade-dry-run'
+        run: python -m tradebot daytrade --dry-run --any-time
+
+      - name: Build dashboard
+        if: always() && steps.which.outputs.job != 'none'
+        run: python -m tradebot dashboard --source accounts --out dashboard/index.html || python -m tradebot dashboard --source research --out dashboard/index.html
+
+      - name: Save results to the repo
+        if: always() && steps.which.outputs.job != 'none'
+        run: |
+          git config user.name "tradebot"
+          git config user.email "tradebot@users.noreply.github.com"
+          git add -f data/intraday/leaderboard.json data/intraday/shadow.csv data/intraday/live_log.txt 2>/dev/null || true
+          git diff --cached --quiet || (git commit -m "Day-trading results $(date -u +%F)" && git push)
+
+      - name: Save dashboard
+        if: always() && steps.which.outputs.job != 'none'
+        uses: actions/upload-artifact@v4
+        with:
+          name: trading-dashboard
+          path: dashboard/index.html
+          if-no-files-found: ignore
+          retention-days: 90

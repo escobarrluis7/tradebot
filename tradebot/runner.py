@@ -89,6 +89,8 @@ def run_account(acc, args, notify_env="NOTIFY_URL") -> list[str]:
     out = []
     if acc["mode"] == "track":
         return [f"{acc['id']}: tracking only - nothing to do"]
+    if acc.get("strategy") == "daytrade":
+        return [f"{acc['id']}: day-trading account - handled by 'python -m tradebot daytrade'"]
     blocked = automation_check(acc)
     if blocked:
         _journal(acc["id"], "blocked", blocked)
