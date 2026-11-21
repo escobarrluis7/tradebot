@@ -121,6 +121,23 @@ The edge in this strategy comes from holding overnight, and prop rules don't all
 futures profile for alerts and tracking until a futures-specific (intraday) strategy is built and tested.
 `python -m tradebot --profile futures backtest --per-strategy` reproduces these numbers.
 
+## TradingView version (`tradingview/daily_one_trade.pine`)
+The same stock strategy as a TradingView indicator. On 2014–2026 data it chooses the same daily pick
+as the Python bot on 99.8% of days.
+1. In TradingView, open a **daily** chart (e.g. SPY), then open **Pine Editor** at the bottom of the screen.
+2. Delete what's in the editor, paste the whole file, and click **Save**, then **Add to chart**.
+   A table appears showing today's pick and the top 10 ranking.
+3. Click **Alert** (the clock icon) and set the condition to **Daily One-Trade Ensemble** → **Any alert() function call**.
+   Turn on app or email notifications, and set expiration to open-ended if your plan allows it.
+4. Each evening at the close you get the next day's trade, for example:
+   * `{"ticker":"XLV","action":"buy","quantity":29,...,"stopLoss":{"type":"stop","stopPrice":183.84}}`
+   * an `exit` message for the previous pick
+5. Optional, on paid TradingView plans: tick **Webhook URL** in the alert and paste your
+   TradersPost (or similar) URL. Orders then go to your broker automatically. Only do this where bots are allowed.
+
+Set **Account size** in the indicator's settings, since TradingView can't see your broker balance.
+Market orders sent after the close execute at the next open, if your broker or relay queues them.
+
 ## Analytics dashboard
 ```bash
 python -m tradebot dashboard                        # every account in accounts.yaml (picker)
