@@ -13,6 +13,7 @@ class Order:
     score: float
     atr: float
     equity: float
+    mult: float = 1.0          # $ per 1.0 price move per unit (1 for stocks, e.g. 5 for MES)
 
 
 @dataclass
@@ -35,10 +36,16 @@ class Fill:
         return asdict(self)
 
 
-def position_size(equity, price, atr, cfg):
-    risk_dollars = equity * cfg["risk_per_trade"]
-    per_share_risk = max(cfg["stop_atr_mult"] * atr, price * 0.001)
-    qty = min(risk_dollars / per_share_risk, equity * cfg["max_position_pct"] / price)
+def position_size(equity, price, atr, cfg, mult=1.0, risk_dollars=None):
+    """Units (shares or contracts) so that a stop-out loses about risk_dollars."""
+    if risk_dollars is None:
+        risk_dollars = equity * cfg["risk_per_trade"]
+    per_unit_risk = max(cfg["stop_atr_mult"] * atr, price * 0.001) * mult
+    qty = risk_dollars / per_unit_risk
+    if mult == 1.0:                                   # stocks: cap notional exposure
+        qty = min(qty, equity * cfg["max_position_pct"] / price)
+    if cfg.get("max_contracts"):
+        qty = min(qty, cfg["max_contracts"])
     return float(np.floor(qty))
 
 
@@ -54,13 +61,13 @@ def simulate(order: Order, bars: pd.DataFrame, cfg) -> Fill | None:
     entry = bars["open"].iloc[0] * (1 + sgn * slip)
     stop = entry - sgn * cfg["stop_atr_mult"] * order.atr
     target = entry + sgn * cfg["target_atr_mult"] * order.atr
-    qty = position_size(order.equity, entry, order.atr, cfg)
+    qty = position_size(order.equity, entry, order.atr, cfg, order.mult)
     if qty <= 0:
         return None
     hold = cfg["hold_days"]
     at_open = cfg.get("exit_at", "close") == "open"
     n_bars = hold + 1 if at_open else hold          # exit_at=open sells at the open after hold_days sessions
-    if len(bars) < n_bars:
+    if len(bars) < n_bars or bars.iloc[:n_bars].isna().any().any() or not np.isfinite(order.atr):
         return None
     for i in range(n_bars):
         b = bars.iloc[i]
@@ -80,7 +87,8 @@ def simulate(order: Order, bars: pd.DataFrame, cfg) -> Fill | None:
         else:
             continue
         exit_px = px * (1 - sgn * slip)
-        pnl = sgn * (exit_px - entry) * qty - 2 * cfg["commission"]
+        fees = 2 * cfg["commission"] * (qty if order.mult != 1.0 else 1)   # futures: per contract per side
+        pnl = sgn * (exit_px - entry) * qty * order.mult - fees
         return Fill(order.symbol, order.side, order.signal_date,
                     str(bars.index[0].date()), str(bars.index[i].date()),
                     qty, round(entry, 4), round(exit_px, 4), round(stop, 4), round(target, 4),

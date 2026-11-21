@@ -7,7 +7,12 @@ import pandas as pd
 
 from .config import ROOT
 
-CACHE = ROOT / "data" / "cache.pkl"
+CACHE_DIR = ROOT / "data"
+
+
+def _cache(symbols):
+    import hashlib
+    return CACHE_DIR / f"cache_{hashlib.md5(','.join(symbols).encode()).hexdigest()[:8]}.pkl"
 FIELDS = ["open", "high", "low", "close", "volume"]
 NY = ZoneInfo("America/New_York")
 
@@ -22,6 +27,7 @@ def _drop_incomplete_bar(df: pd.DataFrame) -> pd.DataFrame:
 
 def load(symbols: list[str], start: str, refresh: bool = True) -> dict[str, pd.DataFrame]:
     symbols = sorted(set(symbols))
+    CACHE = _cache(symbols)
     if CACHE.exists() and not refresh:
         d = pd.read_pickle(CACHE)
         if set(symbols) <= set(d["close"].columns):

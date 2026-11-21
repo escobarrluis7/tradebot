@@ -10,10 +10,33 @@ from .config import ROOT
 TEMPLATE = Path(__file__).with_name("dashboard_template.html")
 
 
-def render(cfg, source) -> str:
-    report = build_report(cfg, source)
-    data = json.dumps(report, default=str).replace("</", "<\\/")
+def _html(reports: dict) -> str:
+    data = json.dumps({"reports": reports, "order": list(reports)}, default=str).replace("</", "<\\/")
     return TEMPLATE.read_text().replace("__DATA__", data)
+
+
+def render(cfg, source) -> str:
+    if source == "accounts":
+        return render_accounts()
+    return _html({source: build_report(cfg, source)})
+
+
+def render_accounts(only=None) -> str:
+    """One dashboard with a picker for every account in accounts.yaml."""
+    from .accounts import load_accounts
+    from .config import load_config
+    reports = {}
+    for acc in load_accounts()["accounts"]:
+        if only and acc["id"] not in only:
+            continue
+        cfg = load_config(profile=acc["profile"])
+        try:
+            reports[acc["id"]] = build_report(cfg, "account", acc)
+        except (SystemExit, Exception) as e:          # e.g. Alpaca keys not set on this machine
+            print(f"skipping {acc['id']}: {e}")
+    if not reports:
+        raise SystemExit("No accounts could be loaded - check accounts.yaml")
+    return _html(reports)
 
 
 def write(cfg, source, out=None) -> Path:

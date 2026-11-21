@@ -1,2 +1,6 @@
-data/
+data/*
+!data/accounts/
+data/accounts/*/*
+# Commit your imported trade history so the scheduled dashboard includes it (use a PRIVATE repo)
+!data/accounts/*/trades.csv
 __pycache__/

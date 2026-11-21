@@ -67,6 +67,17 @@ th:first-child,td:first-child{text-align:left}
 .legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
 .empty{color:var(--muted);padding:30px;text-align:center}
 .foot{color:var(--muted);font-size:12px;margin-top:24px}
+.hidden{display:none!important}
+select.acct{font:inherit;font-size:14px;padding:6px 10px;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--ink);max-width:100%}
+.meter{height:8px;border-radius:4px;background:var(--neutral);overflow:hidden;margin-top:8px}
+.meter>span{display:block;height:100%;border-radius:4px;background:var(--s1)}
+.meter.warn>span{background:var(--neg)}
+.status{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;padding:3px 10px;border-radius:999px}
+.status.ok{background:rgba(12,163,12,.12);color:var(--up)}
+.status.bad{background:rgba(208,59,59,.12);color:var(--down)}
+.rules{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;margin-top:12px}
+.rules>div{background:var(--page);border-radius:10px;padding:12px}
+.rules .l{color:var(--ink2);font-size:12px}.rules .v{font-size:18px;font-weight:600;margin-top:2px}.rules .d{font-size:12px;color:var(--muted);margin-top:4px}
 .themebtn{border:1px solid var(--border);background:var(--surface);color:var(--ink2);border-radius:8px;padding:5px 10px;font:inherit;font-size:12px;cursor:pointer}
 </style>
 </head>
@@ -77,10 +88,24 @@ th:first-child,td:first-child{text-align:left}
       <h1>Trading Analytics <span class="badge" id="src"></span></h1>
       <div class="sub" id="asof"></div>
     </div>
-    <button class="themebtn" id="theme" type="button">Toggle theme</button>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <select class="acct hidden" id="acct" aria-label="Account"></select>
+      <button class="themebtn" id="theme" type="button">Toggle theme</button>
+    </div>
   </header>
 
   <section class="kpis" id="kpis"></section>
+
+  <section class="card empty hidden" id="emptyCard"><h2>No closed trades yet</h2>
+    <p id="emptyMsg"></p></section>
+
+  <section class="card hidden" id="rulesCard">
+    <div class="row" style="margin-bottom:0">
+      <div><h2>Prop firm rules</h2><div class="sub" id="rulesSub"></div></div>
+      <span class="status" id="rulesStatus"></span>
+    </div>
+    <div class="rules" id="rulesGrid"></div>
+  </section>
 
   <section class="card">
     <div class="row">
@@ -123,7 +148,7 @@ th:first-child,td:first-child{text-align:left}
       <div class="chart" id="symWrap"><canvas id="symChart" aria-label="P&L by symbol"></canvas></div>
     </section>
     <section class="card">
-      <h2>How trades ended</h2><div class="sub">Exit reason breakdown</div>
+      <h2 id="reasonTitle">How trades ended</h2><div class="sub" id="reasonSub">Exit reason breakdown</div>
       <div class="tbl"><table id="reasonTable"></table></div>
       <h2 style="margin-top:18px">Trade quality</h2>
       <div class="tbl"><table id="qualityTable"></table></div>
@@ -140,21 +165,25 @@ th:first-child,td:first-child{text-align:left}
 
 <script id="report" type="application/json">__DATA__</script>
 <script>
-const R = JSON.parse(document.getElementById('report').textContent);
-const S = R.summary || {};
+const DATA = JSON.parse(document.getElementById('report').textContent);
+let R, S;
 const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 const usd = (v, sign) => v == null ? '–' : (sign && v > 0 ? '+' : (v < 0 ? '−' : '')) + '$' + Math.abs(v).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
 const pct = (v, sign, d = 2) => v == null ? '–' : (sign && v > 0 ? '+' : (v < 0 ? '−' : '')) + Math.abs(v * 100).toFixed(d) + '%';
 const cls = v => v == null ? '' : v > 0 ? 'up' : v < 0 ? 'down' : '';
 const num = (v, d = 2) => v == null ? '–' : (+v).toFixed(d);
 
-document.getElementById('src').textContent = R.source;
+function renderHeader() {
+document.getElementById('src').textContent = R.account ? `${R.account.firm} · ${R.account.platform} · ${modeName[R.account.mode]}` : R.source;
 document.getElementById('asof').textContent = (S.as_of ? 'Data through ' + S.as_of + ' · ' : '') + 'Updated ' + R.generated;
 document.getElementById('foot').textContent = R.source.startsWith('Backtest')
   ? 'Backtest results are simulated. They include slippage but no taxes, and they do not guarantee future results.'
-  : 'Realised P&L from closed trades. Equity comes from the account.';
+  : 'Realised P&L from closed trades. Prop-rule figures are calculated from your imported trades; your firm\'s dashboard is the official record.';
+}
+const modeName = {auto: 'bot trades automatically', signal: 'alerts only - you place trades', track: 'tracking only'};
 
 // ---------- KPI tiles
+function renderKpis() {
 const kpis = [
   ['Account equity', usd(S.equity), S.start_equity ? 'started at ' + usd(S.start_equity) : ''],
   ['Total return', `<span class="${cls(S.total_return)}">${pct(S.total_return, true, 1)}</span>`, S.cagr != null ? pct(S.cagr, true, 1) + ' per year' : ''],
@@ -166,6 +195,31 @@ const kpis = [
   ['Avg trade', `<span class="${cls(S.expectancy)}">${usd(S.expectancy, true)}</span>`, 'win ' + usd(S.avg_win) + ' / loss ' + usd(S.avg_loss)],
 ];
 document.getElementById('kpis').innerHTML = kpis.map(([l, v, d]) => `<div class="kpi"><div class="l">${l}</div><div class="v">${v}</div><div class="d">${d}</div></div>`).join('');
+}
+
+// ---------- prop rules
+function meter(frac, warn) { const w = Math.max(0, Math.min(1, frac || 0)) * 100; return `<div class="meter ${warn ? 'warn' : ''}"><span style="width:${w}%"></span></div>`; }
+function renderRules() {
+  const card = document.getElementById('rulesCard'), P = R.rules;
+  card.classList.toggle('hidden', !P);
+  if (!P) return;
+  const ddName = {eod_trailing: 'end-of-day trailing', intraday_trailing: 'intraday trailing', static: 'static'}[P.drawdown_type];
+  document.getElementById('rulesSub').textContent = `${usd(P.account_size)} account · ${ddName} drawdown${P.approximate ? ' (estimated from closed trades)' : ''}`;
+  const bad = P.breached || (P.days_over_dll > 0) || P.consistency_ok === false;
+  const st = document.getElementById('rulesStatus');
+  st.className = 'status ' + (bad ? 'bad' : 'ok');
+  st.textContent = P.breached ? '✕ Drawdown limit breached' : bad ? '! Rule warning' : '✓ Within rules';
+  const tiles = [
+    ['Room before drawdown limit', usd(P.buffer), `balance ${usd(P.balance)} · limit at ${usd(P.floor)}`, meter(P.buffer_pct, P.buffer_pct < .3)],
+  ];
+  if (P.profit_target != null) tiles.push(['Profit target', pct(Math.max(P.target_progress, 0), false, 0) + ' done', `${usd(P.profit, true)} of ${usd(P.profit_target)}`, meter(P.target_progress)]);
+  if (P.daily_loss_limit != null) tiles.push(['Daily loss limit', usd(P.daily_loss_limit), `last day ${usd(P.today_pnl, true)} · worst day ${usd(P.worst_day, true)} · ${P.days_over_dll} day(s) over`, meter(-Math.min(P.today_pnl, 0) / P.daily_loss_limit, true)]);
+  else tiles.push(['Worst day', usd(P.worst_day, true), 'no daily loss limit set', '']);
+  if (P.consistency_limit != null) tiles.push(['Consistency rule', P.best_day_share == null ? '–' : pct(P.best_day_share, false, 0) + ' best day',
+    `limit ${pct(P.consistency_limit, false, 0)} of total profit · best day ${usd(P.best_day, true)}`, P.best_day_share == null ? '' : meter(P.best_day_share / P.consistency_limit, !P.consistency_ok)]);
+  tiles.push(['Trading days', P.trading_days, P.max_contracts ? `max size ${P.max_contracts} contracts` : '', '']);
+  document.getElementById('rulesGrid').innerHTML = tiles.map(([l, v, d, m]) => `<div><div class="l">${l}</div><div class="v">${v}</div>${m}<div class="d">${d}</div></div>`).join('');
+}
 
 // ---------- chart defaults
 Chart.defaults.font.family = 'system-ui,-apple-system,"Segoe UI",sans-serif';
@@ -245,12 +299,17 @@ function renderEquity() {
   const eq = range ? R.equity.slice(-range) : R.equity;
   const dd = range ? R.drawdown.slice(-range) : R.drawdown;
   const labels = eq.map(p => p[0]);
-  const sets = [{label: 'Bot equity', data: eq.map(p => p[1]), borderColor: css('--s1'), borderWidth: 2, pointRadius: 0, pointHoverRadius: 4, tension: 0}];
+  const sets = [{label: R.account && R.account.mode !== 'auto' ? 'Account balance' : 'Bot equity', data: eq.map(p => p[1]), borderColor: css('--s1'), borderWidth: 2, pointRadius: 0, pointHoverRadius: 4, tension: 0}];
   if (R.benchmark.length) {
     const bm = Object.fromEntries(R.benchmark);
     const first = eq.length ? eq[0][1] : 1, b0 = bm[labels[0]];
     sets.push({label: R.benchmark_name + ' buy & hold', data: labels.map(d => bm[d] != null && b0 ? bm[d] / b0 * first : null),
       borderColor: css('--s2'), borderWidth: 2, pointRadius: 0, pointHoverRadius: 4, tension: 0, spanGaps: true});
+  }
+  if (R.rules && R.rules.floor_series.length) {
+    const fm = Object.fromEntries(R.rules.floor_series);
+    sets.push({label: 'Drawdown limit', data: labels.map(d => fm[d] ?? null), borderColor: css('--muted'), borderWidth: 1.5,
+      borderDash: [5, 4], pointRadius: 0, pointHoverRadius: 3, tension: 0, spanGaps: true, stepped: true});
   }
   document.getElementById('eqLegend').innerHTML = sets.map(s => `<span><i style="background:${s.borderColor}"></i>${s.label}</span>`).join('') +
     (R.benchmark.length ? '<span>· both start at the same value for the range shown</span>' : '');
@@ -282,9 +341,12 @@ function renderBreakdowns() {
         return [`P&L ${usd(s.pnl, true)}`, `${s.trades} trades · ${pct(s.win_rate, false, 0)} won`]; }}}},
       scales: {x: {grid: {color: css('--grid')}, border: {display: false}, ticks: {maxTicksLimit: 5, callback: v => (v < 0 ? '−$' : '$') + Math.abs(v).toLocaleString()}},
                y: {grid: {display: false}, border: {color: css('--axis')}, ticks: {autoSkip: false}}}}});
-  const names = {'time(open)': 'Sold at next open (normal)', 'close': 'Sold at close', 'stop': 'Stop-loss hit', 'stop(gap)': 'Gapped through stop',
+  const bySide = R.by_reason.every(r => r.name === 'long' || r.name === 'short');
+  document.getElementById('reasonTitle').textContent = bySide ? 'Long vs short' : 'How trades ended';
+  document.getElementById('reasonSub').textContent = bySide ? 'Results by trade direction' : 'Exit reason breakdown';
+  const names = {long: 'Long (buy first)', short: 'Short (sell first)', 'time(open)': 'Sold at next open (normal)', 'close': 'Sold at close', 'stop': 'Stop-loss hit', 'stop(gap)': 'Gapped through stop',
                  'target': 'Profit target hit', 'target(gap)': 'Gapped past target', 'fill': 'Broker fill'};
-  document.getElementById('reasonTable').innerHTML = '<thead><tr><th>Exit</th><th>Trades</th><th>Win rate</th><th>P&L</th></tr></thead><tbody>' +
+  document.getElementById('reasonTable').innerHTML = '<thead><tr><th>' + (bySide ? 'Direction' : 'Exit') + '</th><th>Trades</th><th>Win rate</th><th>P&L</th></tr></thead><tbody>' +
     R.by_reason.map(r => `<tr><td>${names[r.name] || r.name}</td><td>${r.trades}</td><td>${pct(r.win_rate, false, 0)}</td><td class="${cls(r.pnl)}">${usd(r.pnl, true)}</td></tr>`).join('') + '</tbody>';
   const q = [['Best trade', usd(S.best_trade, true)], ['Worst trade', usd(S.worst_trade, true)], ['Average win', usd(S.avg_win, true)],
     ['Average loss', usd(S.avg_loss, true)], ['Longest win streak', S.win_streak ?? '–'], ['Longest loss streak', S.loss_streak ?? '–']];
@@ -300,13 +362,26 @@ function renderTrades() {
     : '<tbody><tr><td class="empty">No closed trades yet. They appear here after the bot\'s first trade completes.</td></tr></tbody>';
 }
 
-function renderAll() { theme(); renderPeriods(); renderEquity(); renderBreakdowns(); renderTrades(); }
-if (!R.equity.length) {
-  document.querySelectorAll('section.card, .grid2').forEach(e => e.remove());
-  document.getElementById('kpis').insertAdjacentHTML('afterend',
-    '<section class="card empty"><h2>No closed trades yet</h2><p>The bot\'s first trade fills at the next market open. ' +
-    'Daily, weekly, monthly and yearly analytics appear here once a trade completes.</p></section>');
-  renderAll = () => {};
+const SECTIONS = () => document.querySelectorAll('section.card:not(#emptyCard):not(#rulesCard), .grid2');
+function renderAll() {
+  theme(); renderHeader(); renderKpis(); renderRules();
+  const empty = !R.equity.length;
+  document.getElementById('emptyCard').classList.toggle('hidden', !empty);
+  SECTIONS().forEach(e => e.classList.toggle('hidden', empty));
+  if (empty) {
+    document.getElementById('emptyMsg').textContent = !R.account ? 'The bot\'s first trade fills at the next market open. Analytics appear here once a trade completes.'
+      : R.account.mode === 'auto' ? 'Analytics appear here once the bot\'s first trade completes.'
+      : `Export your trade history from ${R.account.platform || 'your platform'} as CSV, then run: python -m tradebot import --account ${R.account.id} <file.csv>`;
+    return;
+  }
+  renderPeriods(); renderEquity(); renderBreakdowns(); renderTrades();
+}
+function select(key) { R = DATA.reports[key]; S = R.summary || {}; shown = 30; renderAll(); try { localStorage.setItem('acct', key); } catch (e) {} }
+const picker = document.getElementById('acct');
+if (DATA.order.length > 1) {
+  picker.classList.remove('hidden');
+  picker.innerHTML = DATA.order.map(k => `<option value="${k}">${DATA.reports[k].account ? DATA.reports[k].account.name : DATA.reports[k].source}</option>`).join('');
+  picker.addEventListener('change', () => select(picker.value));
 }
 document.getElementById('theme').addEventListener('click', () => {
   const root = document.documentElement;
@@ -314,8 +389,11 @@ document.getElementById('theme').addEventListener('click', () => {
   root.dataset.theme = dark ? 'light' : 'dark';
   renderAll();
 });
-matchMedia('(prefers-color-scheme: dark)').addEventListener('change', renderAll);
-renderAll();
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => renderAll());
+let start = DATA.order[0];
+try { const k = localStorage.getItem('acct'); if (k && DATA.reports[k]) start = k; } catch (e) {}
+picker.value = start;
+select(start);
 </script>
 </body>
 </html>

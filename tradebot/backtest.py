@@ -4,6 +4,7 @@ import pandas as pd
 
 from . import indicators as ind
 from .engine import Order, simulate
+from .instruments import multiplier
 from .ensemble import build, pick
 
 
@@ -30,7 +31,7 @@ def run(d, cfg, start=None, combined=None, bull=None, quiet=False):
         if not choice:
             continue
         sym, side, score = choice
-        order = Order(sym, side, str(t.date()), score, float(a.at[t, sym]), equity)
+        order = Order(sym, side, str(t.date()), score, float(a.at[t, sym]), equity, multiplier(cfg, sym))
         f = simulate(order, _bars(d, sym, t, cfg["hold_days"] + 1), cfg)
         if f is None:
             continue

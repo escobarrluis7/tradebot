@@ -2,24 +2,35 @@ name: Daily trade
 
 on:
   schedule:
-    # 12:35 UTC on weekdays = 8:35 AM New York in summer, 7:35 AM in winter, before the 9:30 open.
-    # The bot asks Alpaca whether the market opens today and does nothing on holidays.
+    # Stocks: 12:35 UTC weekdays = 8:35 AM New York in summer, 7:35 AM in winter (before the open).
     - cron: "35 12 * * 1-5"
-  workflow_dispatch:          # "Run workflow" button for a manual run
+    # Futures alerts: after the 5 PM ET close, before the 6 PM ET reopen. Two UTC times cover
+    # summer and winter; the job only acts when it is 5 PM hour in New York.
+    - cron: "10 21 * * 1-5"
+    - cron: "10 22 * * 1-5"
+  workflow_dispatch:
+    inputs:
+      job:
+        description: "What to run"
+        type: choice
+        options: [stocks, futures]
+        default: stocks
 
 concurrency:
-  group: daily-trade          # never two runs at once
+  group: daily-trade
   cancel-in-progress: false
+
+env:
+  ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+  ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
+  ALPACA_LIVE: ${{ vars.ALPACA_LIVE }}                 # leave unset for paper trading
+  NOTIFY_URL: ${{ secrets.NOTIFY_URL }}                # Discord / Slack / ntfy URL for alerts
+  LUCID_50K_WEBHOOK_URL: ${{ secrets.LUCID_50K_WEBHOOK_URL }}   # only if an account uses a relay
 
 jobs:
   trade:
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    env:
-      TRADEBOT_BROKER: alpaca
-      ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
-      ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
-      ALPACA_LIVE: ${{ vars.ALPACA_LIVE }}     # leave unset for paper trading
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -28,24 +39,34 @@ jobs:
           cache: pip
       - run: pip install -r requirements.txt
 
-      - name: Place today's trade
-        run: python -m tradebot run
+      - name: Decide which accounts to run
+        id: which
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "profile=${{ inputs.job }}" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          ny_hour=$(TZ=America/New_York date +%H)
+          case "${{ github.event.schedule }}" in
+            "35 12 * * 1-5") echo "profile=stocks" >> "$GITHUB_OUTPUT" ;;
+            *) if [ "$ny_hour" = "17" ]; then echo "profile=futures" >> "$GITHUB_OUTPUT";
+               else echo "profile=none" >> "$GITHUB_OUTPUT"; echo "Not 5 PM in New York (hour $ny_hour) - skipping"; fi ;;
+          esac
 
-      - name: Account status
-        if: always()
-        run: python -m tradebot status
+      - name: Run accounts
+        if: steps.which.outputs.profile != 'none'
+        run: python -m tradebot run --all-accounts --only-profile ${{ steps.which.outputs.profile }}
 
-      - name: Build analytics dashboard
-        if: always()
-        run: python -m tradebot dashboard --source alpaca --out dashboard/index.html
+      - name: Build analytics dashboard (all accounts)
+        if: always() && steps.which.outputs.profile != 'none'
+        run: python -m tradebot dashboard --source accounts --out dashboard/index.html
 
       - name: Save dashboard
-        if: always()
+        if: always() && steps.which.outputs.profile != 'none'
         uses: actions/upload-artifact@v4
         with:
-          name: trading-dashboard
+          name: trading-dashboard-${{ steps.which.outputs.profile }}
           path: |
             dashboard/index.html
-            data/journal.csv
+            data/accounts/*/journal.csv
           if-no-files-found: ignore
           retention-days: 90

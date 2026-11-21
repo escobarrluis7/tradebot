@@ -1,0 +1,81 @@
+# ---------------------------------------------------------------------------
+# Your trading accounts. Every account gets its own analytics in the dashboard.
+#
+# mode:
+#   auto   - the bot places trades (only where the firm allows bots)
+#   signal - the bot sends you the trade idea; you place it yourself
+#   track  - analytics only (import your trade history)
+#
+# profile: stocks | futures  (which strategy settings to use from config.yaml)
+#
+# connector (auto mode):
+#   alpaca  - Alpaca API (keys in env ALPACA_API_KEY / ALPACA_SECRET_KEY)
+#   webhook - a relay such as TradersPost / PickMyTrade that forwards orders to
+#             Tradovate, NinjaTrader, Rithmic, etc. The URL is read from the env var
+#             named in url_env (keep it secret - anyone with it can trade).
+#
+# rules: copy the numbers from YOUR plan - they differ by plan and firm.
+# ---------------------------------------------------------------------------
+accounts:
+  - id: alpaca-paper
+    name: Alpaca paper
+    firm: broker
+    platform: Alpaca
+    profile: stocks
+    mode: auto
+    connector: {type: alpaca}
+
+  - id: lucid-50k
+    name: Lucid 50K
+    firm: lucid
+    platform: Tradovate
+    profile: futures
+    mode: signal              # auto is possible via a webhook relay, but the futures strategy is unvalidated
+    connector: {type: webhook, format: traderspost, url_env: LUCID_50K_WEBHOOK_URL}
+    import_format: tradovate
+    rules:
+      account_size: 50000
+      max_drawdown: 2000          # EDIT: your plan's max loss / trailing drawdown
+      drawdown_type: eod_trailing # eod_trailing | intraday_trailing | static
+      drawdown_locks_at: 50100    # trailing stops rising once the floor reaches this (blank if never)
+      daily_loss_limit: null      # EDIT: $ amount, or null if your plan has none
+      profit_target: 3000         # EDIT: evaluation target (null for funded accounts)
+      max_contracts: 4            # EDIT: in full-size contracts (1 mini = 10 micros)
+      consistency_pct: null       # EDIT: e.g. 50 means best day <= 50% of total profit
+
+  - id: tpt-50k
+    name: Take Profit Trader 50K
+    firm: take_profit_trader
+    platform: Tradovate
+    profile: futures
+    mode: signal                # firm prohibits bots - alerts only
+    import_format: tradovate
+    rules:
+      account_size: 50000
+      max_drawdown: 2000
+      drawdown_type: eod_trailing
+      daily_loss_limit: null
+      profit_target: 3000
+      max_contracts: 6
+      consistency_pct: 50
+
+  - id: alpha-50k
+    name: Alpha Futures 50K
+    firm: alpha_futures
+    platform: NinjaTrader
+    profile: futures
+    mode: signal                # firm prohibits full automation - alerts only
+    import_format: ninjatrader
+    rules:
+      account_size: 50000
+      max_drawdown: 2000
+      drawdown_type: eod_trailing
+      daily_loss_limit: 1000
+      profit_target: 3000
+      max_contracts: 5
+      consistency_pct: 50
+
+# Where alerts go (signal mode, plus a copy of every auto action).
+# Set NOTIFY_URL to a Discord/Slack webhook or an ntfy.sh topic URL.
+notify:
+  url_env: NOTIFY_URL

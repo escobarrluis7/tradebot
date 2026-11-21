@@ -91,7 +91,23 @@ def pair_fills(fills):
     return pd.DataFrame(out, columns=TRADE_COLS)
 
 
-def load_source(cfg, source):
+def from_account(cfg, acc):
+    """Imported trade history (any platform) for an account from accounts.yaml."""
+    from .importers import load_trades
+    trades = load_trades(acc["id"])
+    size = float(acc.get("rules", {}).get("account_size") or cfg["starting_cash"])
+    if trades.empty:
+        return trades, pd.Series(dtype=float), None, acc["name"]
+    days = pd.bdate_range(pd.to_datetime(trades.entry_date).min() - pd.offsets.BDay(1),
+                          pd.to_datetime(trades.exit_date).max())
+    return trades, curve_from_trades(trades, size, days), None, acc["name"]
+
+
+def load_source(cfg, source, acc=None):
+    if acc is not None:
+        if acc.get("connector", {}).get("type") == "alpaca":
+            return from_alpaca(cfg)
+        return from_account(cfg, acc)
     if source == "backtest":
         return from_backtest(cfg)
     if source == "alpaca":
@@ -173,8 +189,10 @@ def breakdown(trades: pd.DataFrame, col: str) -> list[dict]:
     return [{"name": k, **{c: float(v) for c, v in r.items()}} for k, r in df.sort_values("pnl", ascending=False).iterrows()]
 
 
-def build_report(cfg, source) -> dict:
-    trades, curve, bench, label = load_source(cfg, source)
+def build_report(cfg, source, acc=None) -> dict:
+    from .firms import firm
+    from .prop import status
+    trades, curve, bench, label = load_source(cfg, source, acc)
     if len(trades):
         trades = trades.sort_values("exit_date").reset_index(drop=True)
     dd = (curve / curve.cummax() - 1) if len(curve) else curve
@@ -188,6 +206,10 @@ def build_report(cfg, source) -> dict:
         "drawdown": [[str(i.date()), round(float(v), 5)] for i, v in dd.items()],
         "benchmark": [[str(i.date()), round(float(v), 2)] for i, v in bench.items()] if bench is not None else [],
         "by_symbol": breakdown(trades, "symbol"),
-        "by_reason": breakdown(trades, "reason"),
+        "by_reason": breakdown(trades, "side" if len(trades) and set(trades.reason) == {"import"} else "reason"),
         "trades": trades.tail(500).replace({np.nan: None}).to_dict("records") if len(trades) else [],
+        "account": None if acc is None else {
+            "id": acc["id"], "name": acc["name"], "firm": firm(acc["firm"])["name"],
+            "platform": acc.get("platform", ""), "mode": acc["mode"]},
+        "rules": status(acc.get("rules", {}), trades, curve) if acc is not None else None,
     }

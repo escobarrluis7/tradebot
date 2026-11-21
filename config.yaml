@@ -44,3 +44,33 @@ adaptive_lookback: 120       # trading days used to score strategies
 adaptive_blend: 0.5          # 0 = fixed weights only, 1 = fully performance-driven
 
 history_start: "2012-01-01"  # data download start
+
+# ---------------------------------------------------------------------------
+# Profiles override the settings above for a different market.
+# The futures profile follows prop-firm rules: one trade per session, entered at
+# the 6 PM ET Globex open, flat before the afternoon cutoff (no overnight holds
+# across the daily close). Contracts are sized as micros.
+#
+# WARNING: in testing (2013-2026), these daily signals showed NO edge on
+# one-session futures holds (about 0% a year on equity indices). Use the futures
+# profile for alerts and tracking only until a futures-specific strategy is
+# validated. `python -m tradebot --profile futures backtest` shows the numbers.
+# ---------------------------------------------------------------------------
+profiles:
+  futures:
+    watchlist: [ES=F, NQ=F, YM=F, RTY=F]   # traded as MES, MNQ, MYM, M2K (see instruments.py)
+    benchmark: ES=F
+    exit_at: close
+    hold_days: 1
+    allow_short: true
+    regime_filter: false
+    starting_cash: 50000                  # = prop account size for backtests
+    risk_per_trade: 0.01                  # 1% of account (~$500 on 50K) - keep well under your daily loss limit
+    stop_atr_mult: 1.0                    # one micro S&P at 1x ATR risks roughly $300-500
+    target_atr_mult: 2.0
+    max_contracts: 10                     # micros; set to your plan's limit
+    commission: 0.50                      # $ per micro contract per side (check your firm)
+    slippage_bps: 1
+    flatten_time: "16:35"                 # ET - before your firm's cutoff
+    strategies: {trend: 1.0, tsmom: 1.0, xsmom: 1.0, mean_reversion: 0.5, breakout: 0.0, macd: 0.0}
+    adaptive_weights: false

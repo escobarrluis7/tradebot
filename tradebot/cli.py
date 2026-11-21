@@ -83,6 +83,16 @@ def _market_check(broker):
 
 
 def cmd_run(cfg, args):
+    if getattr(args, "account", None) or getattr(args, "all_accounts", False):
+        from .runner import run_account, selected
+        for acc in selected(args):
+            print(f"\n=== {acc['name']} ({acc['mode']}) ===")
+            try:
+                for line in run_account(acc, args):
+                    print(line)
+            except Exception as e:           # one account failing must not stop the others
+                print(f"ERROR in {acc['id']}: {e}")
+        return
     broker = get_broker(cfg)
     if cfg["broker"] == "alpaca":
         return _run_alpaca(cfg, args, broker)
@@ -142,6 +152,11 @@ def cmd_status(cfg, args):
 
 
 def cmd_flatten(cfg, args):
+    if getattr(args, "account", None) or getattr(args, "all_accounts", False):
+        from .runner import flatten_account, selected
+        for acc in selected(args):
+            print(flatten_account(acc))
+        return
     broker = get_broker(cfg)
     if hasattr(broker, "flatten"):
         print(broker.flatten())
@@ -149,9 +164,33 @@ def cmd_flatten(cfg, args):
         print("Paper broker exits automatically at the close - nothing to do.")
 
 
+def cmd_accounts(cfg, args):
+    from .accounts import automation_check, load_accounts
+    from .firms import firm
+    from .importers import load_trades
+    for a in load_accounts()["accounts"]:
+        f = firm(a["firm"])
+        n = len(load_trades(a["id"]))
+        print(f"{a['id']:<16} {a['name']:<26} {f['name']:<20} mode={a['mode']:<6} profile={a['profile']:<7} "
+              f"bots: {f['automation']:<10} trades imported: {n}")
+        warn = automation_check(a)
+        if warn:
+            print(f"   ! {warn}")
+
+
+def cmd_import(cfg, args):
+    from .accounts import get_account
+    from .importers import import_file
+    acc = get_account(args.account)
+    for f in args.files:
+        added, total = import_file(acc, f, args.format)
+        print(f"{f}: {added} new trades added to {acc['id']} ({total} total)")
+
+
 def cmd_dashboard(cfg, args):
     from .dashboard import serve, write
-    source = args.source or ("alpaca" if cfg["broker"] == "alpaca" else "paper")
+    from .accounts import ACCOUNTS_FILE
+    source = args.source or ("accounts" if ACCOUNTS_FILE.exists() else "alpaca" if cfg["broker"] == "alpaca" else "paper")
     if args.serve:
         serve(cfg, source, args.port)
     else:
@@ -161,6 +200,7 @@ def cmd_dashboard(cfg, args):
 def main():
     p = argparse.ArgumentParser(prog="tradebot", description="One-trade-a-day ensemble trading bot")
     p.add_argument("--config")
+    p.add_argument("--profile", help="config profile, e.g. futures (default: stocks)")
     p.add_argument("--cached", action="store_true", help="use cached data, don't re-download")
     sub = p.add_subparsers(dest="cmd", required=True)
     sub.add_parser("signal", help="show today's ranked signals and the chosen trade")
@@ -169,14 +209,26 @@ def main():
     b.add_argument("--per-strategy", action="store_true", help="also backtest each strategy alone")
     r = sub.add_parser("run", help="settle yesterday's trade and place today's (run once per day)")
     r.add_argument("--any-time", action="store_true", help="skip the market-open-today check")
-    sub.add_parser("status", help="show paper account")
-    sub.add_parser("flatten", help="(alpaca) cancel orders and close positions - run before the close")
+    sub.add_parser("status", help="show paper / Alpaca account")
+    fl = sub.add_parser("flatten", help="close bot positions (webhook accounts at the cutoff; Alpaca exit_at=close)")
+    for sp in (r, fl):
+        sp.add_argument("--account", help="an account id from accounts.yaml")
+        sp.add_argument("--all-accounts", action="store_true", help="every account in accounts.yaml")
+        sp.add_argument("--only-profile", dest="profile_filter", choices=["stocks", "futures"],
+                        help="with --all-accounts: only accounts using this profile")
+    sub.add_parser("accounts", help="list accounts from accounts.yaml with firm policies")
+    im = sub.add_parser("import", help="import a trade-history CSV from your platform into an account")
+    im.add_argument("--account", required=True)
+    im.add_argument("--format", choices=["tradovate", "ninjatrader", "generic"])
+    im.add_argument("files", nargs="+")
     db = sub.add_parser("dashboard", help="build the analytics dashboard (HTML)")
-    db.add_argument("--source", choices=["paper", "alpaca", "backtest"])
+    db.add_argument("--source", choices=["accounts", "paper", "alpaca", "backtest"],
+                    help="accounts = every account in accounts.yaml (default)")
     db.add_argument("--out", help="output file (default data/dashboard_<source>.html)")
     db.add_argument("--serve", action="store_true", help="run a local web server instead of writing a file")
     db.add_argument("--port", type=int, default=8050)
     args = p.parse_args()
-    cfg = load_config(args.config)
+    cfg = load_config(args.config, args.profile)
     {"signal": cmd_signal, "backtest": cmd_backtest, "run": cmd_run,
-     "status": cmd_status, "flatten": cmd_flatten, "dashboard": cmd_dashboard}[args.cmd](cfg, args)
+     "status": cmd_status, "flatten": cmd_flatten, "dashboard": cmd_dashboard,
+     "accounts": cmd_accounts, "import": cmd_import}[args.cmd](cfg, args)
